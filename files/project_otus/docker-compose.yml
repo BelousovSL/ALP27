@@ -1,0 +1,74 @@
+services:
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: "${DB_NAME}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+    logging:
+      driver: none
+    restart: unless-stopped
+    networks:
+      - app-network
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    container_name: wiki
+    depends_on:
+      - db
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: "${POSTGRES_USER}"
+      DB_PASS: "${POSTGRES_PASSWORD}"
+      DB_NAME: "${DB_NAME}"
+    restart: unless-stopped
+    networks:
+      - app-network
+    ports:
+      - 3000:3000
+
+  nginx:
+    image: nginx:stable
+    container_name: nginx
+    restart: unless-stopped
+    # Т.к. все запросы к приложениям будут проходить через nginx, пробросим под каждое приложение по порту.
+    ports:
+      - 9083:9083
+      - 9081:9081
+      - 9082:9082
+    volumes:
+      - ./nginx-conf:/etc/nginx/conf.d # монтируем конфиг
+    networks:
+      - app-network
+    depends_on: # nginx будет запускаться после всех приложений
+      - wiki
+      #- app
+      - node
+
+  node:
+    image: node:22.16
+    container_name: node
+    working_dir: /opt/server # переназначим рабочую директорию для удобства
+    volumes:
+      - ./node:/opt/server # пробрасываем приложение в директорию контейнера
+    command: node test.js # запуск приложения
+    networks:
+      - app-network
+
+  test_app:
+    container_name: test_app
+    build:
+      dockerfile: ./testWebApplication/Dockerfile
+      context: ./testWebApplication/
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
